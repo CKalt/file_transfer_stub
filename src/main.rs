@@ -19,6 +19,8 @@
 use actix_web::{web, web::Path, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use std::io::Write;
 
+use std::{thread, time};
+
 fn flush_stdout() {
     std::io::stdout().flush().unwrap();
 }
@@ -84,20 +86,48 @@ fn invalid_resource(req: HttpRequest) -> impl Responder {
     HttpResponse::NotFound()
 }
 
+fn run_web(url: &str) {
+    match HttpServer::new(|| {
+            App::new()
+                .service(
+                    web::resource("/{filename}")
+                        .route(web::delete().to(delete_file))
+                        .route(web::get().to(download_file))
+                        .route(web::put().to(upload_specified_file))
+                        .route(web::post().to(upload_new_file)),
+                )
+                .default_service(web::route().to(invalid_resource))
+        })
+        .bind(url) {
+            Err(e) => panic!("Web server bind error: {}", e),
+            Ok(binding) =>
+                match binding.run() {
+                    Err(e) => panic!("Web server error: {}", e),
+                    Ok(()) => println!("web server done"),
+                },
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let server_address = "127.0.0.1:8080";
     println!("Listening at address {} ...", server_address);
-    HttpServer::new(|| {
-        App::new()
-            .service(
-                web::resource("/{filename}")
-                    .route(web::delete().to(delete_file))
-                    .route(web::get().to(download_file))
-                    .route(web::put().to(upload_specified_file))
-                    .route(web::post().to(upload_new_file)),
-            )
-            .default_service(web::route().to(invalid_resource))
-    })
-    .bind(server_address)?
-    .run()
+
+    thread::spawn(move || {
+        run_web(server_address)
+    });
+
+    println!("running for 10 minutes");
+    println!("\n\
+        Test it with the following commands: \n\
+        curl -X DELETE http://localhost:8080/datafile.txt \n\
+        curl -X GET http://localhost:8080/datafile.txt \n\
+        curl -X PUT http://localhost:8080/datafile.txt -d \"File contents.\" \n\
+        curl -X POST http://localhost:8080/data -d \"File contents.\" \n\
+        curl -X GET http://localhost:8080/a/b \n\
+    ");
+
+    //thread::sleep(time::Duration::from_secs(10*60));
+    thread::sleep(time::Duration::from_secs(10));
+
+    Ok(())
 }
